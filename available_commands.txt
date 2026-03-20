@@ -19,16 +19,8 @@
 ID:20260320_154530
 # Obligatorio. Debe coincidir con el timestamp del nombre de imagen.
 
-OUTPUT:Temps/Photos/final_20260320_154530.png
-# Obligatorio minimo de salida (forma recomendada).
-# Alternativa: OUTPUT_DIR + OUTPUT_NAME.
-
-OUTPUT_DIR:Temps/Photos
-# Opcional si ya usas OUTPUT.
-# Si OUTPUT no existe, entonces OUTPUT_DIR + OUTPUT_NAME pasan a ser obligatorios.
-
-OUTPUT_NAME:final_20260320_154530.png
-# Opcional si ya usas OUTPUT.
+OUTPUT_NAME:Temps/Photos/final_20260320_154530.png
+# Obligatorio. Es la ruta completa de salida, incluyendo nombre de fichero.
 
 ALIGN_PATTERN:/ruta/al/patron.png
 # Opcional. Si existe, corrige el angulo con deteccion de patron.
@@ -51,8 +43,5 @@ NOTES:lote_A_ensayo
 # MINIMO OBLIGATORIO PARA GENERAR
 # ------------------------------------------------------------
 # 1) ID valido y coincidente con el set de imagenes.
-# 2) Salida definida:
-#    - OUTPUT
-#    o
-#    - OUTPUT_DIR + OUTPUT_NAME
+# 2) OUTPUT_NAME definido (ruta completa + nombre del archivo final).
 # 3) Set completo en Temps/Photos (todas las posiciones i-j segun cols x rows).

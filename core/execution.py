@@ -36,8 +36,6 @@ VALID_EXTS = {".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 @dataclass
 class ComposeObject:
     object_id: str
-    output_path: str = ""
-    output_dir: str = ""
     output_name: str = ""
     align_pattern: str = ""
     slope: float = 0.0
@@ -49,11 +47,7 @@ class ComposeObject:
     extra: dict[str, str] = field(default_factory=dict)
 
     def resolved_output(self) -> Path | None:
-        if self.output_path.strip():
-            return Path(self.output_path.strip())
-        if self.output_dir.strip() and self.output_name.strip():
-            return Path(self.output_dir.strip()) / self.output_name.strip()
-        return None
+        return Path(self.output_name.strip()) if self.output_name.strip() else None
 
     def has_minimum_attrs(self) -> bool:
         return self.resolved_output() is not None
@@ -90,13 +84,7 @@ def apply_params(obj: ComposeObject, params: dict[str, str]) -> None:
         key_upper = key.strip().upper()
         if key_upper == "ID":
             continue
-        if key_upper == "OUTPUT":
-            obj.output_path = value
-        elif key_upper == "OUTPUT_PATH":
-            obj.output_path = value
-        elif key_upper == "OUTPUT_DIR":
-            obj.output_dir = value
-        elif key_upper == "OUTPUT_NAME":
+        if key_upper == "OUTPUT_NAME":
             obj.output_name = value
         elif key_upper == "ALIGN_PATTERN":
             obj.align_pattern = value
@@ -356,6 +344,10 @@ def process_command_files(objects: dict[str, ComposeObject]) -> None:
             object_id = params.get("ID", "").strip()
             if not object_id:
                 print(f"[WRN] Comando sin ID, ignorado: {file_path.name}")
+                file_path.unlink(missing_ok=True)
+                continue
+            if "OUTPUT_NAME" not in {k.strip().upper() for k in params.keys()}:
+                print(f"[WRN] Comando sin OUTPUT_NAME, ignorado: {file_path.name}")
                 file_path.unlink(missing_ok=True)
                 continue
 
