@@ -1,0 +1,1 @@
+[INF] Main iniciado. Log: Temps/Logs/20260316142210_log.txt. GUI y hilo de ejecucion lanzados.

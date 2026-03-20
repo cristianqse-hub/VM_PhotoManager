@@ -1,0 +1,49 @@
+PSEUDOCODIGO SIMPLE (PROCESAMIENTO DE IMAGEN COMPUESTA)
+
+objetivo:
+pasar de una lista de imagenes parciales (con algo de solapamiento) a una imagen final unica.
+
+------------------------------------------------------------
+
+leer lista de imagenes parciales en orden correcto
+si la lista esta vacia -> terminar con error
+
+cargar primera imagen con cv2.imread(...)
+obtener ancho y alto de esa imagen: tile_w, tile_h
+
+definir solapamiento:
+overlap_x = porcentaje horizontal (ejemplo 0.15)
+overlap_y = porcentaje vertical (ejemplo 0.10)
+
+calcular paso real entre imagenes:
+step_x = tile_w * (1 - overlap_x)
+step_y = tile_h * (1 - overlap_y)
+
+conocer cuantas columnas y filas hay: cols, rows
+
+calcular tamaño de lienzo final:
+canvas_w = step_x * (cols - 1) + tile_w
+canvas_h = step_y * (rows - 1) + tile_h
+
+crear canvas negro:
+canvas = np.zeros((canvas_h, canvas_w, 3), dtype=np.uint8)
+
+para cada imagen parcial:
+    cargar imagen actual con cv2.imread(...)
+    leer su posicion en la matriz: i, j
+    x = (i - 1) * step_x
+    y = (j - 1) * step_y
+
+    extraer region del canvas donde va esa imagen
+    mezclar imagen actual con esa region (zona solapada), por ejemplo:
+    blended = cv2.addWeighted(region_canvas, 0.5, imagen_actual, 0.5, 0)
+    escribir blended en el canvas en esa posicion
+
+al final:
+guardar resultado:
+cv2.imwrite("imagen_final.png", canvas)
+
+------------------------------------------------------------
+
+resultado:
+una sola imagen compuesta a partir de parciales con solapamiento.
