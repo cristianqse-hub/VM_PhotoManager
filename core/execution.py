@@ -185,20 +185,20 @@ def list_ordered_set_images(set_data: dict[str, Any]) -> list[Path] | None:
     return ordered
 
 
-def maybe_generate_composite(obj: ComposeObject, photo_sets: dict[str, dict[str, Any]]) -> None:
+def maybe_generate_composite(obj: ComposeObject, photo_sets: dict[str, dict[str, Any]]) -> bool:
     if not obj.enabled:
         obj.last_status = "disabled"
-        return
+        return False
 
     if cv2 is None:
         obj.last_status = "error"
         obj.last_error = "OpenCV no disponible"
-        return
+        return False
 
     set_data = photo_sets.get(obj.object_id)
     if set_data is None:
         obj.last_status = "waiting_photos"
-        return
+        return False
 
     cols = set_data["cols"]
     rows = set_data["rows"]
@@ -208,31 +208,31 @@ def maybe_generate_composite(obj: ComposeObject, photo_sets: dict[str, dict[str,
     if set_data.get("invalid_dimensions"):
         obj.last_status = "invalid_set"
         obj.last_error = "Dimensiones cols/rows inconsistentes en nombres de imagen."
-        return
+        return False
 
     if found < expected:
         obj.last_status = f"incomplete_set:{found}/{expected}"
-        return
+        return False
 
     if not obj.has_minimum_attrs():
         obj.last_status = "missing_attrs"
-        return
+        return False
 
     ordered_paths = list_ordered_set_images(set_data)
     if ordered_paths is None:
         obj.last_status = "incomplete_set"
-        return
+        return False
 
     signature = "|".join([p.name for p in ordered_paths])
     if signature == obj.last_built_signature and obj.resolved_output() and obj.resolved_output().exists():
         obj.last_status = "up_to_date"
-        return
+        return False
 
     images = load_images(ordered_paths)
     if len(images) != len(ordered_paths):
         obj.last_status = "error"
         obj.last_error = "No se han podido cargar todas las imagenes del set."
-        return
+        return False
 
     try:
         positions, scores = compute_positions(images)
@@ -255,11 +255,39 @@ def maybe_generate_composite(obj: ComposeObject, photo_sets: dict[str, dict[str,
                     f"ID={obj.object_id}, angle={angle_deg:.4f}, centers={centers}, "
                     f"scores={[round(x, 3) for x in match_scores]}"
                 )
-                pano = rotate_image(pano, angle_deg)
+                if abs(angle_deg) > 1e-12:
+                    base_crop = crop_black_borders(pano)
+                    cand_pos = crop_black_borders(rotate_image(pano, angle_deg))
+                    cand_neg = crop_black_borders(rotate_image(pano, -angle_deg))
+
+                    candidates = [
+                        ("0.0000", base_crop),
+                        (f"{angle_deg:.4f}", cand_pos),
+                        (f"{-angle_deg:.4f}", cand_neg),
+                    ]
+                    best_angle_txt, best_img = min(candidates, key=lambda item: item[1].shape[0])
+                    pano = best_img
+
+                    print(
+                        "[INF] Evaluacion candidatos de rotacion "
+                        f"ID={obj.object_id}: h0={base_crop.shape[0]}, "
+                        f"h+={cand_pos.shape[0]}, h-={cand_neg.shape[0]}, "
+                        f"mejor_candidato={best_angle_txt}"
+                    )
+                    print(
+                        "[INF] Rotacion aplicada por patron "
+                        f"ID={obj.object_id}: angle_final={best_angle_txt} grados"
+                    )
+                else:
+                    print(f"[INF] Rotacion por patron omitida ID={obj.object_id}: angulo ~ 0")
             else:
                 print(f"[WRN] ALIGN_PATTERN no existe para ID={obj.object_id}: {pattern_path}")
         elif abs(obj.slope) > 1e-12:
             angle_deg = -np.degrees(np.arctan(obj.slope))
+            print(
+                "[INF] Rotacion por slope "
+                f"ID={obj.object_id}: slope={obj.slope}, angle={float(angle_deg):.4f}"
+            )
             pano = rotate_image(pano, float(angle_deg))
 
         pano = crop_black_borders(pano)
@@ -267,7 +295,7 @@ def maybe_generate_composite(obj: ComposeObject, photo_sets: dict[str, dict[str,
         output_path = obj.resolved_output()
         if output_path is None:
             obj.last_status = "missing_attrs"
-            return
+            return False
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         ok = cv2.imwrite(str(output_path), pano)
@@ -280,19 +308,33 @@ def maybe_generate_composite(obj: ComposeObject, photo_sets: dict[str, dict[str,
                     p.unlink()
                 except FileNotFoundError:
                     pass
+            obj.last_status = f"generated_and_deleted:{output_path}"
+            obj.last_error = ""
+            obj.last_built_signature = signature
+            mean_score = float(np.mean(scores)) if scores else 1.0
+            print(
+                f"[INF] Generada imagen compuesta ID={obj.object_id} "
+                f"({len(ordered_paths)} imgs, score={mean_score:.3f}) -> {output_path}"
+            )
+            print(f"[INF] Objeto ID={obj.object_id} marcado para eliminar (DELETE_PARTIALS=true).")
+            return True
 
         obj.last_status = f"generated:{output_path}"
         obj.last_error = ""
         obj.last_built_signature = signature
+        obj.enabled = False
         mean_score = float(np.mean(scores)) if scores else 1.0
         print(
             f"[INF] Generada imagen compuesta ID={obj.object_id} "
             f"({len(ordered_paths)} imgs, score={mean_score:.3f}) -> {output_path}"
         )
+        print(f"[INF] Objeto ID={obj.object_id} marcado como inactivo tras generar.")
+        return False
     except Exception as exc:
         obj.last_status = "error"
         obj.last_error = str(exc)
         print(f"[ERR] Fallo generando ID={obj.object_id}: {exc}")
+        return False
 
 
 def write_runtime_state(objects: dict[str, ComposeObject], photo_sets: dict[str, dict[str, Any]]) -> None:
@@ -341,6 +383,9 @@ def process_command_files(objects: dict[str, ComposeObject]) -> None:
     for file_path in files:
         try:
             params = parse_command_file(file_path)
+            print(f"[INF] Leyendo comando: {file_path.name}")
+            for key, value in params.items():
+                print(f"[INF]   {key}:{value}")
             object_id = params.get("ID", "").strip()
             if not object_id:
                 print(f"[WRN] Comando sin ID, ignorado: {file_path.name}")
@@ -371,7 +416,13 @@ def execution_loop(stop_event: mp.Event) -> None:
     while not stop_event.is_set():
         process_command_files(objects)
         photo_sets = collect_photo_sets()
-        for obj in objects.values():
-            maybe_generate_composite(obj, photo_sets)
+        delete_ids: list[str] = []
+        for object_id, obj in list(objects.items()):
+            should_delete_object = maybe_generate_composite(obj, photo_sets)
+            if should_delete_object:
+                delete_ids.append(object_id)
+        for object_id in delete_ids:
+            objects.pop(object_id, None)
+            print(f"[INF] Objeto eliminado: ID={object_id}")
         write_runtime_state(objects, photo_sets)
         stop_event.wait(timeout=0.5)
