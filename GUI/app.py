@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -15,6 +17,7 @@ class LogViewerApp:
         self.commands_dir = Path("Temps/Commands")
         self.photos_dir = Path("Temps/Photos")
         self.temps_dir = Path("Temps")
+        self.runtime_state_path = Path("Temps/runtime_state.json")
         self.last_content = ""
         self.last_commands_content = ""
         self.last_photos_signature = ""
@@ -253,6 +256,16 @@ class LogViewerApp:
                 if not subdir.is_dir():
                     continue
 
+                if subdir.name in {"Photos", "Commands"}:
+                    for root, _, files in os.walk(subdir):
+                        for file_name in files:
+                            file_path = Path(root) / file_name
+                            try:
+                                file_path.unlink()
+                            except FileNotFoundError:
+                                pass
+                    continue
+
                 for child in subdir.iterdir():
                     if (
                         subdir.name == "Logs"
@@ -262,13 +275,13 @@ class LogViewerApp:
                     ):
                         continue
 
-                    if child.is_dir():
-                        shutil.rmtree(child, ignore_errors=True)
-                    else:
+                    if child.is_file():
                         try:
                             child.unlink()
                         except FileNotFoundError:
                             pass
+                    elif child.is_dir():
+                        shutil.rmtree(child, ignore_errors=True)
 
             print("[INF] Clear temps ejecutado.")
         except Exception as exc:
@@ -276,24 +289,22 @@ class LogViewerApp:
 
     def parse_photo_filename(self, file_name: str) -> dict | None:
         pattern = (
-            r"^(?P<date>\d{8})_(?P<time>\d{6,9})_"
+            r"^(?P<id>\d{8}_\d{6,9})Img_?"
             r"(?P<cols>\d+)x(?P<rows>\d+)_"
             r"(?P<i>\d+)-(?P<j>\d+)_"
-            r"(?P<rep>\d+)-(?P<reps>\d+)_.*\.png$"
+            r".*\.(?P<ext>bmp|png|jpg|jpeg|tif|tiff)$"
         )
-        match = re.match(pattern, file_name)
+        match = re.match(pattern, file_name, flags=re.IGNORECASE)
         if not match:
             return None
 
         data = match.groupdict()
         return {
-            "group_id": f"{data['date']}_{data['time']}",
+            "group_id": data["id"],
             "cols": int(data["cols"]),
             "rows": int(data["rows"]),
             "i": int(data["i"]),
             "j": int(data["j"]),
-            "rep": int(data["rep"]),
-            "reps": int(data["reps"]),
             "name": file_name,
         }
 
@@ -312,96 +323,81 @@ class LogViewerApp:
         signature = "|".join([f["name"] for f in parsed])
         return parsed, signature
 
+    def load_runtime_state(self) -> dict:
+        if not self.runtime_state_path.exists():
+            return {}
+        try:
+            return json.loads(self.runtime_state_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
     def update_photos_ids_panel(self, parsed_files: list[dict]) -> None:
-        groups = sorted({item["group_id"] for item in parsed_files})
+        groups: dict[str, dict] = {}
+        for item in parsed_files:
+            group_id = item["group_id"]
+            group = groups.setdefault(
+                group_id,
+                {
+                    "cols": item["cols"],
+                    "rows": item["rows"],
+                    "coords": set(),
+                    "invalid_dimensions": False,
+                },
+            )
+            if group["cols"] != item["cols"] or group["rows"] != item["rows"]:
+                group["invalid_dimensions"] = True
+                group["cols"] = max(group["cols"], item["cols"])
+                group["rows"] = max(group["rows"], item["rows"])
+            group["coords"].add((item["i"], item["j"]))
+
+        runtime_state = self.load_runtime_state()
+        object_ids = set(runtime_state.get("object_ids", []))
+
+        sorted_group_ids = sorted(groups.keys())
+        groups_count = len(sorted_group_ids)
         self.photos_info_label.configure(text=f"Grupos detectados: {len(groups)}")
 
-        lines: list[str] = [f"->{group_id}" for group_id in groups]
+        lines: list[str] = []
+        for group_id in sorted_group_ids:
+            group = groups[group_id]
+            cols = group["cols"]
+            rows = group["rows"]
+            expected = cols * rows
+            found = len(group["coords"])
+            marker = "O" if group_id in object_ids else "X"
+            if group["invalid_dimensions"]:
+                state = "INVALID_DIMS"
+            elif found == expected:
+                state = "COMPLETE"
+            else:
+                state = "INCOMPLETE"
+            lines.append(f"{marker} {group_id} {found}/{expected} ({cols}x{rows}) {state}")
+
+        self.photos_info_label.configure(text=f"Sets detectados: {groups_count}")
 
         self.photos_ids_text.configure(state="normal")
         self.photos_ids_text.delete("1.0", "end")
         if lines:
             self.photos_ids_text.insert("1.0", "\n".join(lines))
+        else:
+            self.photos_ids_text.insert("1.0", "Sin sets en Temps/Photos")
         self.photos_ids_text.configure(state="disabled")
 
     def draw_photos_grid(self, parsed_files: list[dict]) -> None:
         self.photos_canvas.delete("all")
-        if not parsed_files:
-            self.photos_canvas.create_text(
-                10,
-                10,
-                anchor="nw",
-                fill="white",
-                text="Sin imagenes temporales validas en Temps/Photos",
-            )
-            return
-
-        groups = sorted({item["group_id"] for item in parsed_files})
-        latest_group = groups[-1]
-        latest_items = [item for item in parsed_files if item["group_id"] == latest_group]
-
-        cols = max(item["cols"] for item in latest_items)
-        rows = max(item["rows"] for item in latest_items)
-
-        self.photos_info_label.configure(text=f"Grupos detectados: {len(groups)} | Ultimo: {latest_group}")
-
-        cell_data: dict[tuple[int, int], dict[str, int]] = {}
-        for item in latest_items:
-            key = (item["i"], item["j"])
-            if key not in cell_data:
-                cell_data[key] = {"rep_max": item["rep"], "reps": item["reps"]}
-            else:
-                cell_data[key]["rep_max"] = max(cell_data[key]["rep_max"], item["rep"])
-                cell_data[key]["reps"] = max(cell_data[key]["reps"], item["reps"])
-
-        canvas_w = max(self.photos_canvas.winfo_width(), 100)
-        canvas_h = max(self.photos_canvas.winfo_height(), 100)
-        margin = 10
-        gap = 2
-        cell_w = max((canvas_w - (2 * margin) - ((cols - 1) * gap)) / max(cols, 1), 6)
-        cell_h = max((canvas_h - (2 * margin) - ((rows - 1) * gap)) / max(rows, 1), 6)
-
-        for row in range(1, rows + 1):
-            for col in range(1, cols + 1):
-                x0 = margin + (col - 1) * (cell_w + gap)
-                y0 = margin + (row - 1) * (cell_h + gap)
-                x1 = x0 + cell_w
-                y1 = y0 + cell_h
-
-                info = cell_data.get((col, row))
-                text = ""
-                if info is None:
-                    fill = "#606060"
-                else:
-                    rep_max = info["rep_max"]
-                    reps = info["reps"]
-                    complete = rep_max >= reps
-                    if complete and reps == 1:
-                        fill = "#1f7a1f"
-                    elif complete:
-                        fill = "#9be28f"
-                        text = f"{rep_max}/{reps}"
-                    else:
-                        fill = "#ff9900"
-                        text = f"{rep_max}/{reps}"
-
-                self.photos_canvas.create_rectangle(
-                    x0,
-                    y0,
-                    x1,
-                    y1,
-                    fill=fill,
-                    outline="#0b0b0b",
-                    width=1,
-                )
-                if text:
-                    self.photos_canvas.create_text(
-                        (x0 + x1) / 2,
-                        (y0 + y1) / 2,
-                        text=text,
-                        fill="white",
-                        font=("TkDefaultFont", 9, "bold"),
-                    )
+        self.photos_canvas.create_text(
+            10,
+            10,
+            anchor="nw",
+            fill="white",
+            text=(
+                "Estado de sets:\n"
+                "O = existe objeto en runtime para ese ID\n"
+                "X = no existe objeto para ese ID\n"
+                "COMPLETE = set completo\n"
+                "INCOMPLETE = faltan imagenes"
+            ),
+        )
 
     def refresh_photos(self) -> None:
         parsed, signature = self.collect_photos_data()

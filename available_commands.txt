@@ -1,0 +1,58 @@
+# FORMATO COMANDO
+# Cada linea: parameter:value
+# La linea ID es obligatoria.
+
+# ------------------------------------------------------------
+# EJEMPLO DE NOMBRE DE IMAGEN VALIDO (en Temps/Photos)
+# ------------------------------------------------------------
+# 20260320_154530Img_1x20_3-1_tile.png
+#
+# Donde:
+# - ID del set = 20260320_154530
+# - "Img" es literal obligatorio tras el timestamp
+# - 1x20 = cols x rows
+# - 3-1 = i-j
+
+# ------------------------------------------------------------
+# EJEMPLO DE COMANDO COMPLETO
+# ------------------------------------------------------------
+ID:20260320_154530
+# Obligatorio. Debe coincidir con el timestamp del nombre de imagen.
+
+OUTPUT:Temps/Photos/final_20260320_154530.png
+# Obligatorio minimo de salida (forma recomendada).
+# Alternativa: OUTPUT_DIR + OUTPUT_NAME.
+
+OUTPUT_DIR:Temps/Photos
+# Opcional si ya usas OUTPUT.
+# Si OUTPUT no existe, entonces OUTPUT_DIR + OUTPUT_NAME pasan a ser obligatorios.
+
+OUTPUT_NAME:final_20260320_154530.png
+# Opcional si ya usas OUTPUT.
+
+ALIGN_PATTERN:/ruta/al/patron.png
+# Opcional. Si existe, corrige el angulo con deteccion de patron.
+# Tiene prioridad sobre SLOPE.
+
+SLOPE:0.015
+# Opcional. Correccion angular simple (dy/dx).
+# Solo se usa si ALIGN_PATTERN no esta definido.
+
+DELETE_PARTIALS:false
+# Opcional. true/false. Si true, borra parciales usados tras generar.
+
+ENABLED:true
+# Opcional. true/false. Si false, el objeto queda desactivado.
+
+NOTES:lote_A_ensayo
+# Opcional. Metadato libre; no afecta al motor actual.
+
+# ------------------------------------------------------------
+# MINIMO OBLIGATORIO PARA GENERAR
+# ------------------------------------------------------------
+# 1) ID valido y coincidente con el set de imagenes.
+# 2) Salida definida:
+#    - OUTPUT
+#    o
+#    - OUTPUT_DIR + OUTPUT_NAME
+# 3) Set completo en Temps/Photos (todas las posiciones i-j segun cols x rows).
