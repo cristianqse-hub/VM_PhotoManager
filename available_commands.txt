@@ -26,6 +26,14 @@ ALIGN_PATTERN:/ruta/al/patron.png
 # Opcional. Si existe, corrige el angulo con deteccion de patron.
 # Tiene prioridad sobre SLOPE.
 
+ALIGN_PATTERN_THRESHOLD:0.6
+# Opcional. Umbral minimo de concordancia para matchTemplate.
+# Default del motor: 0.6
+
+ALIGN_PATTERN_COUNT:4
+# Opcional. Numero objetivo de coincidencias del patron a buscar.
+# Default del motor: 4
+
 SLOPE:0.015
 # Opcional. Correccion angular simple (dy/dx).
 # Solo se usa si ALIGN_PATTERN no esta definido.
